@@ -10,9 +10,8 @@ from dataclasses import dataclass
 class Problem:
     time_matrix: np.ndarray 
     request: list           
-    num_request: int        
-    # type: str = 'GA'        
-    penalty: tuple[float, float] =(10.0, 1000.0)
+    num_request: int              
+    penalty: tuple[float,float] = 2.0, 4.0 
 
 class Individual:
     def __init__(self, problem=None):
@@ -74,14 +73,19 @@ class Individual:
         # Rest mỗi khi gọi lại (có thể lúc này nó thuộc quần thể mới)
         self.objective = None
         self.route_computing = None
+        self.distance = None
+        self.rank = None
         #----------------------
         
+        self.route_computing = self.compute_route_forward(self)
+
         # 0-travels, 1-arrivals, 2-departures, 3-total_time, 4-lateness, 5-total_lateness, 6-wait, 7-total_wait
         self.route_computing = self.compute_route_forward()
         travel_time = self.route_computing[0]
         total_lateness = self.route_computing[5]
         total_wait = self.route_computing[7]
-        self.objective = sum(travel_time) + problem.penalty[0] * total_wait + problem.penalty[1] * total_lateness
+        # self.objective = sum(travel_time) + problem.penalty[0] * total_wait + problem.penalty[1] * total_lateness
+        self.objective = (sum(travel_time), total_wait*problem.penalty[0] + total_lateness*problem.penalty[1])
         return self.objective
-
+        
 

@@ -6,34 +6,27 @@ import copy
 from dataclasses import dataclass
 from .gp_simulation import simulate_tsptw
 
-# Problem chỉ chứa dữ liệu đề bài
+
 @dataclass(frozen=True) 
 class Problem:
     time_matrix: np.ndarray 
     request: list           
-    num_request: int        
-    type: str = 'GP'        
-    penalty: float = 1000.0 
+    num_request: int             
+    penalty: tuple[float,float] = 1.0, 5.0 
 
-# ------------------------------------------------
-# 1. Tập hàm (Function Set) & Terminal Set
-# ------------------------------------------------
 def protected_div(a, b):
     return a / b if abs(b) > 0.001 else 1.0
 
 FUNC_SET = ['add', 'sub', 'mul', 'div', 'min', 'max']
 
 # Định nghĩa các Terminal cho TSPTW (Priority Rules)
-# ST0: Travel Time (Distance)
-# ST1: Ready Time (e_i)
-# ST2: Due Date (l_i)
-# ST3: Waiting Time (max(0, e_i - arrival))
-# ST4: Slack Time (l_i - arrival) - Độ khẩn cấp
+# R0: Travel Time (Distance)
+# R1: Ready Time (e_i)
+# R2: Due Date (l_i)
+# R3: Waiting Time (max(0, e_i - arrival))
+# R4: Slack Time (l_i - arrival) - Độ khẩn cấp
 TERMINAL_SET = [('R', i) for i in range(5)]
 
-# ------------------------------------------------
-# 1. Cây và cá thể
-# ------------------------------------------------
 class NodeGP:
     def __init__(self, op=None, left=None, right=None, terminal=None, penalty=None):
         self.op = op
@@ -45,8 +38,14 @@ class NodeGP:
     def is_terminal(self):
         return self.terminal is not None
 
-    def deepcopy(self):
-        return copy.deepcopy(self)
+    def copy(self):
+        return NodeGP(
+            op=self.op,
+            left=self.left.copy() if self.left else None,
+            right=self.right.copy() if self.right else None,
+            terminal=self.terminal,
+            penalty=self.penalty
+        )
         
     def size(self):
         if self.is_terminal(): return 1
@@ -59,20 +58,21 @@ class NodeGP:
     def to_string(self):
         if self.terminal is not None:
             _, opt = self.terminal
-            names = ['Dist', 'Ready', 'Due', 'Wait', 'Slack']
-            return names[opt]
+            # names = ['Dist', 'Ready', 'Due', 'Wait', 'Slack']
+            # return names[opt]
+            return f"R{opt}"
         return f"({self.op} {self.left.to_string()} {self.right.to_string()})"
 
     def evaluate(self, dist, ready, due, wait, slack):
         if self.terminal is not None:
             _, opt = self.terminal
-            # maximize 
-            if opt == 0: return -dist  
-            if opt == 1: return -ready
+            # minimize
+            if opt == 0: return dist  
+            if opt == 1: return ready
             if opt == 2: return due
-            if opt == 3: return -wait
+            if opt == 3: return wait * self.penalty[0]
             # if opt == 4: return slack if slack > 0 else slack * self.problem.penalty
-            if opt == 4: return slack if slack > 0 else slack * self.penalty
+            if opt == 4: return (due-slack)/due if slack >= 0 else abs(slack) * self.penalty[1]
             # return 0.0
             
         # Function nodes
@@ -99,20 +99,22 @@ class Individual:
         self.route = []
         self.route_computing = None
         
-    # def copy(self):
-    #     return copy.deepcopy(self)
     def copy(self):
         """
         Tạo bản sao cá thể thủ công để tránh deepcopy toàn bộ object Problem
         giúp tiết kiệm bộ nhớ khi dữ liệu lớn.
         """
-        new_ind = Individual(self.problem, self.tree)
+        tree = self.tree.copy()
+        new_ind = Individual(self.problem, tree)
         new_ind.route = self.route[:]
         
         return new_ind
 
-    def compute_route_forward(self, route, problem):
+    def compute_route_forward(self):
+        route = self.route
+        problem = self.problem
         n = len(route)
+        travels = [0]*n
         arrivals = [0]*n
         departures = [0]*n
         lateness = [0]*n
@@ -124,13 +126,14 @@ class Individual:
             node = route[idx]
             e_i, l_i, d_i = problem.request[node-1]
             travel = problem.time_matrix[prev][node]
+            travels[idx]=travel
             arrival = current_time + travel
             # waiting allowed: arrive earlier -> wait
+            wait[idx] = max(0.0, e_i - arrival)
             if arrival < e_i:
                 arrival = e_i
             # lateness allowed: measure how much late
             late = max(0.0, arrival - l_i)
-            wait.append(max(0.0, e_i - arrival))
             arrivals[idx] = arrival
             lateness[idx] = late
             departures[idx] = arrival + d_i
@@ -142,25 +145,23 @@ class Individual:
         total_time = current_time
         total_lateness = sum(lateness)
         total_wait = sum(wait)
-        return arrivals, departures, total_time, lateness, total_lateness, wait, total_wait
+        return travels, arrivals, departures, total_time, lateness, total_lateness, wait, total_wait
 
-    def calObjective(self, problem):
-        #---------------------
+    def calObjective(self):
+        problem = self.problem
         # Rest mỗi khi gọi lại (có thể lúc này nó thuộc quần thể mới)
         self.objective = None
         self.route_computing = None
         
-        if self.problem.type == 'GP' and self.tree is not None:
-            # self.tree.penalty = problem.penalty
-            # Import bên trong hàm để tránh lỗi Circular Import với file gp_simulation
-            simulate_tsptw(self, problem)
+        if self.tree is not None:
+            simulate_tsptw(self)
         
-        # 0-arrivals, 1-departures, 2-total_time, 3-lateness, 4-total_lateness, 5-wait, 6-total_wait
-        self.route_computing = self.compute_route_forward(self.route, problem)
-        if self.problem.type == 'GP':
-            total_time = self.route_computing[2]
-            total_lateness = self.route_computing[4]
-            self.objective = total_time + problem.penalty * total_lateness
-            return self.objective
+        # 0-travels, 1-arrivals, 2-departures, 3-total_time, 4-lateness, 5-total_lateness, 6-wait, 7-total_wait
+        self.route_computing = self.compute_route_forward()
+        travel_time = self.route_computing[0]
+        total_lateness = self.route_computing[5]
+        total_wait = self.route_computing[7]
+        self.objective = sum(travel_time) + problem.penalty[0] * total_wait + problem.penalty[1] * total_lateness
+        return self.objective
 
         

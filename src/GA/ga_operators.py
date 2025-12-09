@@ -3,93 +3,33 @@ import numpy as np
 #----------------------------------
 # 1. Fitness evaluatation operators
 # ---------------------------------
-def calculate_fitness(pop, problem, fmethod='std', **kwargs):
-    for ind in pop:
-        ind.calObjective(problem)
-    if fmethod is None: fmethod = 'std'
-    if fmethod == 'std':
-        return cal_std_fitness(pop)
-    elif fmethod == 'ranking':
-        # p = kwargs.get('ranking_parameter', 0.5)
-        p = kwargs.get('ranking_f_parameter')
-        if p is None:
-            p = 0.5
-        return cal_ranking_fitness(pop, p)
-    elif fmethod == 'distribution':
-        return cal_dis_fitness(pop)
-    else:
-        raise ValueError(f"Invalid fitness calculating method {fmethod}."
-                         "Valid options: 'std', 'ranking', 'distribution'")
+# def calculate_fitness(pop, problem, fmethod='std', **kwargs):
+#     for ind in pop:
+#         ind.calObjective(problem)
+#     if fmethod is None: fmethod = 'std'
+#     if fmethod == 'std':
+#         return cal_std_fitness(pop)
+#     elif fmethod == 'ranking':
+#         # p = kwargs.get('ranking_parameter', 0.5)
+#         p = kwargs.get('ranking_f_parameter')
+#         if p is None:
+#             p = 0.5
+#         return cal_ranking_fitness(pop, p)
+#     elif fmethod == 'distribution':
+#         return cal_dis_fitness(pop)
+#     else:
+#         raise ValueError(f"Invalid fitness calculating method {fmethod}."
+#                          "Valid options: 'std', 'ranking', 'distribution'")
 
-def calculate_mo_fitness(pop, problem):
-    for ind in pop:
-        ind.calObjective(problem)
-        f1 = ind.objective[0]
-        f2 = ind.objective[1], ind.objective[2]
-        # ind.f1 = f1
-        # ind.f2 = f2
-        ind.fitness = (f1, f2)
-    # else:
-    #     raise ValueError(f"Invalid fitness calculating method {fmethod}."
-    #                      "Valid options: 'std', 'ranking', 'distribution'")
+
 """
 a, standard fitness
 """
-# def cal_std_fitness(indi_list, problem_type="GA"):
 def cal_std_fitness(pop):
-    # obj_values = []
-    # for indi in indi_list:
-    #     obj = indi.calObjective()  
     for indi in pop:
-        # if problem_type == "GA":
+        indi.calObjective()
         indi.fitness = indi.objective
             
-"""
-b, ranking fitness
-"""
-# def cal_ranking_fitness(indi_list, problem_type="GA", p = 0.5):
-def cal_ranking_fitness(pop, p=0.5):
-    pop = sorted(pop, key=lambda x: x.objective, reverse = True)
-    #   total = 0 # tổng độ thích nghi, để chuẩn hóa
-    for i,indi in enumerate(pop):
-        #   if problem_type == "GA":
-        indi.fitness = p*((1-p)**i) # càng xuất hiện sớm thì fitness càng cao, mục tiêu: individual có fitness càng bé thì càng tốt 
-                                    # về sau fitness bé dần, do đó phải sắp xếp objective lớn lên đầu
-    #     total += indi.fitness
-
-    #   for indi in indi_list:
-    #       indi.fitness = indi.fitness / total
-
-"""
-c, distribution fitness (fitness base on distribution)
-"""
-def cal_dis_fitness(pop):
-    # obj_values = [indi.calObjective() for indi in pop]
-    obj_values = [indi.objective for indi in pop]
-    # obj_sorted_idx = sorted(range(len(obj_values)), key=lambda x: obj_values[x], reverse = True)
-    obj_sorted_idx = sorted(range(len(obj_values)), key=lambda x: obj_values[x])
-    obj_ranks = [0] * len(pop)
-    for rank, idx in enumerate(obj_sorted_idx):
-        obj_ranks[idx] = rank + 1
-
-    pl_values =[0]*len(pop) # pl càng bé thì cá thể phân ly càng mạnh -> rank cao (số nhỏ)
-    for i in range(len(pop)):
-        for j in range(len(pop)):
-            if i != j:
-                if obj_values[i] == obj_values[j]:
-                    pl_values[i] += 1e6
-                else:
-                    pl_values[i] += 1 / abs(obj_values[i] - obj_values[j])
-    
-    pl_sorted_idx = sorted(range(len(pl_values)), key=lambda x: pl_values[x])
-    pl_ranks = [0] * len(pop)
-    for rank, idx in enumerate(pl_sorted_idx):
-        pl_ranks[idx] = rank + 1
-    for i, indi in enumerate(pop):
-        # rank_sum = obj_ranks[obj_values[i]] + pl_ranks[pl_values[i]]
-        rank_sum = obj_ranks[i] + pl_ranks[i]
-        indi.fitness = rank_sum
-
 
 #------------------------------
 # 2.Parent seletion operators
@@ -350,12 +290,6 @@ def apply_sv_selection(combined, pop_size, svmethod='tournament', **kwargs):
         return apply_trunc_sv_selection(combined, pop_size, trunc)
     elif svmethod == 'sus':
         return apply_sus_sv_selection(combined, pop_size)
-    elif svmethod == 'linear':
-        # pressure = kwargs.get('linear_parameter', 1.5)
-        pressure = kwargs.get('linear_sv_parameter')
-        if pressure is None:
-            pressure = 1.5
-        return apply_linear_sv_selection(combined, pop_size, pressure)
     elif svmethod == 'tournament':
         # tourn_size = kwargs.get('tourn_sv_parameter', 4) 
         tourn_size = kwargs.get('tourn_sv_parameter')
@@ -402,41 +336,9 @@ def apply_sus_sv_selection(combined, pop_size):
             r += 1.0/pop_size - 1
     return new_pop
 
-"""
-c, Linear survivor selection (base on rank)
-- Khả năng một cá thể được chọn chỉ dựa trên thứ hạng, không còn nhạy cảm với độ lớn giá trị thích nghi như bánh xe Roulette,...
-- Ưu điểm:
-  + Giảm thiểu rủi ro ưu tiên quá mức các cá thể tốt ở đầu quá trình tìm kiếm
-  + Chỉ cần so sánh hơn kém tương đối giữa các cá thể -> giảm chi phí
-"""
-# chọn lọc tuyến tính
-# chỉ áp dụng khi đánh giá độ thích nghi theo xếp hạng
-def apply_linear_sv_selection(combined, pop_size, P=1.5): 
-    # P là hệ số phóng đại [1.0,2.0] xác định áp lực lựa chọn
-    # P = 1.0 -> mọi cá thể có xác suất bằng nhau
-    # P = 2.0 -> cá thể tốt có xác suất gấp đôi trung bình
-  
-    # fit nhỏ -> tốt -> rank cao (1 là cao nhất)
-    # new_fit tính dựa trên rank -> new_fit cũng nhỏ -> xác suất tích lũy nhỏ
-    # -> cần nghịch đảo new_fit để cá thể tốt có xác suất cao được chọn theo roulette
-    fit = [indi.fitness for indi in combined]
-    fit_sorted_idx = sorted(range(pop_size), key=lambda x: fit[x])
-    rank = [idx + 1 for idx in fit_sorted_idx]
-    new_fit = [2-P+2*(P-1)*((x-1)/(pop_size-1)) for x in rank]
-    inv_new_fit = [1/f for f in new_fit]
-    sum_inv_new_fit = sum(inv_new_fit)
-    inv_new_fit_norm = [f/sum_inv_new_fit for f in inv_new_fit]
-    # phần dưới làm như chọn theo bánh xe Roulette
-    cum_fit = np.cumsum(inv_new_fit_norm)
-    new_pop = []
-    for _ in range(pop_size):
-        r = np.random.rand()
-        ind = combined[np.searchsorted(cum_fit, r)]
-        new_pop.append(ind.copy())
-    return new_pop
 
 """
-d, Tournament survivor selection
+c, Tournament survivor selection
 """
 def apply_tour_sv_selection(combined, pop_size, k = 4): 
 #   n = len(pop)

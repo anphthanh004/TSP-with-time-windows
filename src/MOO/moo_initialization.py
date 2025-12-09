@@ -1,5 +1,5 @@
 import random
-from .ga_structures import Individual, Problem
+from .moo_structures import Individual, Problem
 # -----------------------------------
 # individual - greedy intialization
 # -----------------------------------
