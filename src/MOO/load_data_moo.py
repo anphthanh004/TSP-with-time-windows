@@ -8,7 +8,6 @@ from .moo_structures import Individual, Problem
 - Line `i + N + 2` (i = 0, 1, …, N): contains the ith row of the matrix `t`
 """
 def load_data(file_path):
-    # data = []
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"The file {file_path} does not exist.")
     with open(file_path, 'r') as data:
@@ -30,7 +29,6 @@ def load_output(input_path, output_path):
     problem = Problem(num_request=input[0],
                   request=input[1], 
                   time_matrix=np.array(input[2]))
-    # problem = Problem()
     with open(output_path, 'r') as data:
         num_request = int(data.readline().strip())
         route = list(map(int, data.readline().strip().split()))

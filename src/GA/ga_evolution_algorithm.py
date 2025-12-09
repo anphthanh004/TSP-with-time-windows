@@ -114,8 +114,8 @@ def run_genetic_algorithm(
     last_fitness = last_pop_best_indi.fitness
     print ("Initial fitness: ", str(last_fitness))
     
-    progress = []
-    progress.append(last_fitness)
+    progress = [sum(last_pop_best_indi.route_computing[0])]
+    # progress.append(last_fitness)
     
     current_pop = pop
     loop_not_improve = 0
@@ -200,8 +200,9 @@ def run_genetic_algorithm(
         current_fitness = curr_pop_best_indi.fitness
         if i % 20 == 0:
             print(f"Gen {i}: Fit={current_fitness:.0f} | Mut={params['mmethod']} | Sel={params['smethod']} | Surv={params['svmethod']}")
-            
-        progress.append(current_fitness)
+        
+        # progress = [sum(last_pop_best_indi.route_computing[0])]
+        progress.append(sum(curr_pop_best_indi.route_computing[0]))
         
         if abs(last_fitness - current_fitness) < 1e-9:
             loop_not_improve += 1
@@ -215,22 +216,23 @@ def run_genetic_algorithm(
         
         current_pop  = next_pop
     final_fittest_individual = min(current_pop, key=lambda x: x.fitness)
-    print("Running Final Local Search...")
+    # print("Running Final Local Search...")
     # Tăng max_no_improve lên để vét cạn kỹ hơn ở bước cuối cùng
     # final_fittest_individual = local_search_softTW(final_fittest_individual, problem, max_no_improve=20)
     print("---> Fittest individual: ", final_fittest_individual.fitness)
     print("-----Corresponding to the best individual-----")
     print("---> Route:",  final_fittest_individual.route)
     print("---> Total service time: ", final_fittest_individual.route_computing[3])
+    print("---> Total travel time: ", sum(final_fittest_individual.route_computing[0]))
     # print("Number of time window violations: ", final_fittest_individual.valid.count(False))
     print("Number of time window violations: ", sum(1 for x in final_fittest_individual.route_computing[4] if x != 0))
     print("Total time of late arrivals: ", final_fittest_individual.route_computing[5])
     print("Number of arrivals ealier than opening time: ", sum(1 for x in final_fittest_individual.route_computing[6] if x != 0))
     print("Total time of arrivals ealier than opening time:", final_fittest_individual.route_computing[7])
     
-    plt.plot(progress)
-    plt.ylabel('Fitness')
-    plt.xlabel('Generation')
-    plt.show()
+    # plt.plot(progress)
+    # plt.ylabel('Fitness')
+    # plt.xlabel('Generation')
+    # plt.show()
     
-    return current_pop
+    return current_pop, progress

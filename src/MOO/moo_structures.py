@@ -77,7 +77,7 @@ class Individual:
         self.rank = None
         #----------------------
         
-        self.route_computing = self.compute_route_forward(self)
+        self.route_computing = self.compute_route_forward()
 
         # 0-travels, 1-arrivals, 2-departures, 3-total_time, 4-lateness, 5-total_lateness, 6-wait, 7-total_wait
         self.route_computing = self.compute_route_forward()

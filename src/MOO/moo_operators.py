@@ -2,7 +2,7 @@ import random
 import numpy as np
 from .nsga2_algorithm import crowding_distance_assignment, fast_non_dominated_sorting
 
-def calculate_mo_fitness(pop, problem):
+def cal_moo_fitness(pop):
     for ind in pop:
         ind.calObjective()
         f1 = ind.objective[0]
@@ -247,8 +247,8 @@ def nsga2_tourn_selection(pop, tour_size):
     #             return i1
     #         else:
     #             return i2
-    while(tourn):
-        i1, i2 = random.sample(pop, 2)
+    while len(tourn) > 1:
+        i1, i2 = random.sample(tourn, 2)
         if i1.rank < i2.rank:
             tourn.remove(i2)
         elif i2.rank < i1.rank:

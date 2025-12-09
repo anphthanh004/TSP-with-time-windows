@@ -65,9 +65,12 @@ def crowding_distance_assignment(front):
             f_min = front[0].fitness[0]
             f_max = front[-1].fitness[0]
         else:
-            front.sort(key=lambda x: x.fitness[1][0])
-            f_min = front[0].fitness[1][0]
-            f_max = front[-1].fitness[1][0]
+            # front.sort(key=lambda x: x.fitness[1][0])
+            # f_min = front[0].fitness[1][0]
+            # f_max = front[-1].fitness[1][0]
+            front.sort(key=lambda x: x.fitness[1])
+            f_min = front[0].fitness[1]
+            f_max = front[-1].fitness[1]
         # gán vô cùng cho 2 biên để luôn được giữ lại
         front[0].distance = float('inf')
         front[-1].distance = float('inf')
@@ -79,4 +82,6 @@ def crowding_distance_assignment(front):
                 front[i].distance += (front[i+1].fitness[0] - front[i-1].fitness[0]) / norm
         else:
             for i in range(1, l-1):
-                front[i].distance += (front[i+1].fitness[1][0] - front[i-1].fitness[1][0]) / norm            
+                # front[i].distance += (front[i+1].fitness[1][0] - front[i-1].fitness[1][0]) / norm
+                front[i].distance += (front[i+1].fitness[1] - front[i-1].fitness[1]) / norm            
+            

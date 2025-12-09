@@ -8,7 +8,7 @@ from .gp_initialization import gen_pop
 
 
 def run_gp_algorithm(problem, pop_size, c_rate, m_rate, generations, maximum_loop, **kwargs):
-    print("Starting Genetic Programming...")
+    # print("Starting Genetic Programming...")
     
     # 1. Khởi tạo quần thể GP
     current_pop = gen_pop(problem, pop_size, max_depth=6)
@@ -20,8 +20,8 @@ def run_gp_algorithm(problem, pop_size, c_rate, m_rate, generations, maximum_loo
     print(f"Initial GP fitness: {current_best.fitness}")
     
     loop_no_improve = 0
-    last_fitness = current_best.fitness
-    progress = [last_fitness]
+    # last_fitness = current_best.fitness
+    progress = [sum(current_best.route_computing[0])]
     
     for gen in range(generations):
         next_pop = []
@@ -73,8 +73,9 @@ def run_gp_algorithm(problem, pop_size, c_rate, m_rate, generations, maximum_loo
         # In log định kỳ
         if gen % 10 == 0:
             print(f"Gen {gen}: Best Fitness = {current_best.fitness}")
-            
-        progress.append(current_best.fitness)
+        
+        # progress = [sum(current_best.route_computing[0])]    
+        progress.append(sum(current_best.route_computing[0]))
         
         # Kiểm tra điều kiện dừng
         if current_best.fitness < best.fitness:
@@ -87,13 +88,13 @@ def run_gp_algorithm(problem, pop_size, c_rate, m_rate, generations, maximum_loo
             break
             
     # Vẽ biểu đồ
-    plt.plot(progress)
-    plt.title("GP Evolution Progress")
-    plt.ylabel('Fitness')
-    plt.xlabel('Generation')
-    plt.show()
+    # plt.plot(progress)
+    # plt.title("GP Evolution Progress")
+    # plt.ylabel('Fitness')
+    # plt.xlabel('Generation')
+    # plt.show()
     
     print("Best GP Route:", current_best.route)
     print("Best GP Rule:", current_best.tree.to_string())
     
-    return current_pop
+    return current_pop, progress
