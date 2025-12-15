@@ -9,7 +9,7 @@ from .ga_initialization import gen_pop, gen_pop_fully_random, \
 
 
 
-from .local_search import local_search_softTW_best_improvement, local_search_softTW_first_improvement
+from .local_search import local_search_softTW_first_improvement
 def create_next_population(pop, problem, c_rate, m_rate, **kwargs):
     POPSIZE = len(pop)
     children_list = []
@@ -19,8 +19,9 @@ def create_next_population(pop, problem, c_rate, m_rate, **kwargs):
     mmethod = kwargs.get('mmethod')
     svmethod = kwargs.get('svmethod')
     
-    imp_type = kwargs.get('imp_type', 'first_improvement')
+    # imp_type = kwargs.get('imp_type', 'first_improvement')
     ls_rate = kwargs.get('ls_rate', 0.1)
+    max_iter = kwargs.get('ls_iter_max', 10)
     
     #1. Tạo con (crossover)
     while len(children_list) < POPSIZE:
@@ -43,12 +44,12 @@ def create_next_population(pop, problem, c_rate, m_rate, **kwargs):
             children_list[i] = apply_mutation(children_list[i], mmethod) 
         # --- THÊM LOCAL SEARCH TẠI ĐÂY ---
         # Chỉ áp dụng cho một số cá thể may mắn để tiết kiệm thời gian
-        # if random.random() < ls_rate:
+        if random.random() < ls_rate:
         #     # Lưu ý: local_search_softTW trả về cá thể đã tối ưu và tự tính lại fitness/objective
         #     # children_list[i] = local_search_softTW(children_list[i], problem, max_no_improve=5, imp_type=imp_type)
         #     # children_list[i] = local_search_softTW(children_list[i], problem, imp_type=imp_type)
         #     # local_search_softTW_best_improvement
-        #     children_list[i] = local_search_softTW_first_improvement(children_list[i], problem)
+            children_list[i], ls_log_progress = local_search_softTW_first_improvement(children_list[i], max_iter=10)
             # children_list[i] = local_search_softTW_best_improvement(children_list[i], problem)
     
     #3. Gộp hai quần thể
