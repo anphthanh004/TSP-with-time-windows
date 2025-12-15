@@ -35,68 +35,60 @@ class Ant:
         self.total_wait = 0.0
     
     def _select_node(self, current_node, unvisited_nodes, current_time):
-        # Tính mẫu số chung cho Roulette wheel
-        roulette_wheel = 0.0
-        heuristic_total = 0.0
-        # Tính xác suất tích lũy
-        prob_list = []
+
+        prob_list = [] # lưu các node và value của node 
+        roulette_wheel = 0.0 # lưu tổng value
         
-        # # tính tổng heuristic (eta) của các node chưa thăm
-        # for node in unvisited_nodes:
-        #     heuristic_total += (1.0/self.edges[current_node][node].weight)
-            
+        edges = self.edges
+        problem = self.problem
+        
         for node in unvisited_nodes:
             # Công thức: [tau]^alpha * [eta]^beta
-            # tau = self.edges[current_node][node].pheromone
-            # eta = (1.0 / self.edges[current_node][node].weight)  # Heuristic nghịch đảo thời gian di chuyển
-            dist = self.edges[current_node][node].weight
-            arrival_time = current_time + dist
-            
-            e, l, d = self.problem.request[node-1]
+            # tau = self.edges[current_node][node].pheromone (pheromone)
+            # eta (heuristic) # Heuristic tính dựa theo distance và wait và cũng chịu ảnh hưởng bởi mức độ khẩn cấp
+            travel_time = edges[current_node][node].weight
+            arrival_time = current_time + travel_time
+            e, l, d = problem.request[node-1]
             wait_time = max(0.0, e-arrival_time)
-            urgency = l - arrival_time
-            delay = dist + wait_time
+            delay = travel_time + wait_time
+            depature = max(arrival_time, e) + d
             
+            urgency = l - arrival_time
             if urgency < 0:
                 eta = 0.0001 
             else:
                 # ưu tiên delay nhỏ và ưu tiên node sắp đóng cửa
                 eta = 1.0 / (delay + 0.1 * urgency + 1.0)
             # lấy pheromone
-            tau = self.edges[current_node][node].pheromone
+            tau = edges[current_node][node].pheromone
             value = pow(tau, self.alpha) * pow(eta, self.beta)
             roulette_wheel += value
-            prob_list.append((node, value))       
+            # prob_list.append((node, value))   
+            prob_list.append((node, value, depature))    
         
         if roulette_wheel == 0:
             return random.choice(unvisited_nodes)
+        
         random_value = random.uniform(0.0, roulette_wheel)
         wheel_position = 0.0
         
-        for node, value in prob_list:
+        for node, value, depature in prob_list:
             wheel_position += value
             if wheel_position > random_value:
-                return node
-        
-        return unvisited_nodes[-1] # Fallback
+                return node, depature
     
     def find_tour(self):
-        current_node = 0
+
         tour = []
         unvisited = list(range(1, self.problem.num_request + 1))
-        
+        current_node = 0
         current_time = 0.0
         
         while unvisited:
-            next_node = self._select_node(current_node, unvisited, current_time)
+            next_node, depature = self._select_node(current_node, unvisited, current_time)
             tour.append(next_node)
             unvisited.remove(next_node)
-            # Cập nhật thời gian hiện tại sau khi lấy được node
-            dist = self.problem.time_matrix[current_node][next_node]
-            arrival = current_time + dist
-            e, l, d = self.problem.request[next_node - 1]
-            start_service = max(arrival, e)
-            current_time = start_service + d
+            current_time = depature
             current_node = next_node
         self.tour = tour
         
@@ -117,11 +109,14 @@ class Ant:
         total_lateness = 0
         total_wait = 0
         
+        tm = problem.time_matrix
+        rq = problem.request
+        
         for idx in range(n):
             node = route[idx]
-            e_i, l_i, d_i = problem.request[node-1]
+            e_i, l_i, d_i = rq[node-1]
             
-            travel = problem.time_matrix[prev][node]
+            travel = tm[prev][node]
             total_travel += travel
             
             arrival = current_time + travel
@@ -137,7 +132,7 @@ class Ant:
             prev = node
             
         # Quay về depot
-        return_travel = problem.time_matrix[prev][0]
+        return_travel = tm[prev][0]
         current_time += return_travel
         total_travel += return_travel
         
