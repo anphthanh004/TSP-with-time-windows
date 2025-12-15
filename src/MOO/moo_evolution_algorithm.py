@@ -44,9 +44,13 @@ def run_nsga2_1(problem, pop_size, c_rate, m_rate, generations, maximum_loop, **
         # tính khoảng cách quy tụ cho từng cá thể trong từng front
         crowding_distance_assignment(front)
     
-    last_pop_best_indi = current_fronts[0][0]
-
-    print (f"Initial fitness:  [travel_time: {sum(last_pop_best_indi.route_computing[0])}, total_wait: {last_pop_best_indi.route_computing[7]}, total_late: {last_pop_best_indi.route_computing[5]}")
+    # best_travel_time = min(current_fronts[0], key = lambda x: sum(x.route_computing[0])).route_computing[0]
+    best_travel_time = min(current_fronts[0], key = lambda x: x.fitness[0]).fitness[0]
+    best_wait = min(current_fronts[0], key = lambda x: x.route_computing[7]).route_computing[7]
+    best_lateness = min(current_fronts[0], key = lambda x: x.route_computing[5]).route_computing[5]
+    
+    # print (f"Initial fitness:  [travel_time: {sum(last_pop_best_indi.route_computing[0])}, total_wait: {last_pop_best_indi.route_computing[7]}, total_late: {last_pop_best_indi.route_computing[5]}")
+    print (f"Initial fitness:  [best travel_time: {best_travel_time}, total_wait: {best_wait}, total_late: {best_lateness}")
 
     current_pop = pop
     # current_fronts = []
@@ -230,7 +234,7 @@ def run_nsga2(problem, pop_size, c_rate, m_rate, generations, maximum_loop, **kw
             offspring.extend([c1, c2])
         
         offspring = offspring[:pop_size]
-        cal_moo_fitness(offspring)
+        # cal_moo_fitness(offspring)
         
         # --- C. Gộp và Chọn lọc sinh tồn (Survivor Selection) ---
         combined_pop = offspring + [ind.copy() for ind in current_pop]

@@ -1,15 +1,203 @@
+import math
+import numpy as np
 import random
-# import numpy
-import matplotlib.pyplot as plt
-from .ga_operators import cal_std_fitness, \
-                        select_parents, apply_mutation, perform_crossover, apply_sv_selection
-from .ga_initialization import gen_pop, gen_pop_fully_random, \
-                            gen_pop_greedy1, gen_pop_greedy2,\
-                            gen_pop_greedy3, gen_pop_greedy4
+from dataclasses import dataclass
 
 
 
-from .local_search import local_search_softTW_first_improvement
+@dataclass(frozen=True) 
+class Problem:
+    distance_matrix: np.ndarray 
+    request: list           
+    num_request: int            
+
+
+def read_tsp_file(file_path):
+    cities = []
+
+    with open(file_path, 'r') as f:
+        for line in f:
+            if not line.strip() or line.startswith('#'):
+                continue
+            
+            parts = line.strip().split()
+            
+            if len(parts) >= 3:
+                city_id = int(parts[0])
+                x = float(parts[1])
+                y = float(parts[2])
+                
+                cities.append({
+                    'id': city_id,
+                    'coords': (x, y)
+                })
+    return cities
+
+def calculate_distance_matrix(cities):
+    num_cities = len(cities)
+    matrix = [[0] * num_cities for _ in range(num_cities)]
+    for i in range(num_cities):
+        for j in range(num_cities):
+            if i != j:
+                p1 = cities[i]['coords']
+                p2 = cities[j]['coords']
+                dist = math.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
+                matrix[i][j] = dist
+    return matrix
+
+def create_problem(file_path):
+    cities = read_tsp_file(file_path)
+    distance_matrix = calculate_distance_matrix(cities)
+    problem = Problem(distance_matrix=distance_matrix,
+                      request = cities,
+                      num_request=len(cities)
+                        )
+    return problem
+
+
+
+class Individual:
+    def __init__(self, problem=None):
+        self.route = []
+        self.problem = problem
+        self.fitness = None
+        self.route_computing = None
+        
+    def copy(self):
+        new_ind = Individual(self.problem)
+        new_ind.route = self.route[:]
+        return new_ind
+        
+    def calObjective(self):
+        route = self.route
+        problem = self.problem
+        self.objective = None
+        n = len(route)
+        distance = 0
+        prev = 0
+        
+        for idx in range(n):
+            node = route[idx]
+            distance += problem.distance_matrix[prev][node]
+            prev = node
+
+        # return to depot
+        distance += problem.distance_matrix[prev][0]
+        self.objective = distance
+        return self.objective
+
+
+def gen_route_greedy(problem, search_size=2, greedy_type ='travel_time'):
+    """
+    Tạo lộ trình tham lam có yếu tố ngẫu nhiên(beam search): 
+        Tại mỗi bước, chọn (top k) request chưa thăm mà gần nhất và thỏa mãn khung thời gian
+          - Nếu k=1: mọi individual được tạo giống nhau => mất tính đa dạng
+          - Nếu k càng lớn: càng tiến về ngẫu nhiên
+        Nếu không có request nào thỏa mãn, chọn ngẫu nhiên một request trong số (top k) request gần nhất
+    """
+    num_request = problem.num_request
+    locs = list(range(1,num_request+1)) # locs là các request chưa thăm
+    # locs là tên request theo 1-based, request có id là 0-based
+    # vì ban đầu loc là 0 nên các request bắt đầu từ 1
+    current_loc = 0
+    current_time = 0
+    route = []
+    
+    
+    while locs:
+        selected_loc = None
+        # best_travel_time = float('inf')
+        feasible_locs = []
+        
+        # Bước 1: Tìm các request khả thi (có thể đến kịp):
+        for loc in locs:
+            travel_time = problem.time_matrix[current_loc][loc]
+            arrival_time = current_time + travel_time
+            e, l, d = problem.request[loc-1]
+            wait_time = max(0, e - arrival_time)
+            if arrival_time <= l:  # Khả thi
+                # feasible_locs.append((loc, travel_time, arrival_time, e, d))
+                feasible_locs.append({
+                    "id": loc,
+                    "travel_time": travel_time,
+                    "arrival_time": arrival_time,
+                    "e": e, "l": l, "d": d,
+                    "wait": wait_time,
+                    
+                })
+        # Bước 2: Chọn request tốt nhất 
+        # Nếu có nhiều request thỏa mãn time window, chọn cái gần nhất trong đó
+        if feasible_locs:
+            # sắp xếp thời gian di chuyển tăng dần
+            if greedy_type == 'travel_time':
+                feasible_locs.sort(key = lambda x : x['travel_time'])
+            # feasible_locs.sort(key = lambda x : x[1])
+            elif greedy_type == 'wait_time':
+                feasible_locs.sort(key = lambda x : x['wait'])
+            elif greedy_type == 'earliest':
+                feasible_locs.sort(key = lambda x : x['e'])
+            elif greedy_type == 'most_urgent':
+                # feasible_locs.sort(key = lambda x : ((x['l']-(x['arrival_time']))/x['l']))
+                feasible_locs.sort(key = lambda x : x['l']-x['arrival_time'])
+            # top_k = feasible_locs[:k] if len(feasible_locs) >= k else feasible_locs
+            top_k = feasible_locs[:min(len(feasible_locs), search_size)]
+            selected_item = random.choice(top_k)
+            selected_loc = selected_item['id']
+            arrival = selected_item['arrival_time']
+            e = selected_item['e']
+            d = selected_item['d']
+            # Cập nhật thời gian hiện tại
+            current_time = max(arrival, e) + d
+         
+        else:
+            # Nếu không có request nào thỏa mãn (đều bị trễ)
+            # buộc phải chọn một cái để tiếp tục phục vụ -> chọn cái gần nhất để giảm phạt 
+            # hoặc chọn một cái có l lớn nhất vì Phạt = trễ * penalty -> l lớn hơn thì phạt ít hơn
+            local_locs = sorted(locs, key = lambda x : problem.time_matrix[current_loc][x])
+            top_k = local_locs[:min(len(local_locs), search_size)]
+            selected_item = random.choice(top_k)
+            selected_loc = selected_item
+            travel_time = problem.time_matrix[current_loc][selected_loc]
+            arrival = current_time + travel_time
+            e, l, d = problem.request[selected_loc-1]
+            current_time = max(arrival, e) + d
+        
+        route.append(selected_loc)
+        locs.remove(selected_loc)
+        current_loc = selected_loc
+    
+    return route
+
+
+def perform_ox_crossover(parent1, parent2):
+    n = parent1.problem.num_request
+    p1 = parent1.route
+    p2 = parent2.route
+    c1 = [None] * n
+    c2 = [None] * n
+    start = np.random.randint(0,n -1)
+    end = np.random.randint(start+1, n)
+
+    c1[start:end+1] = p1[start:end+1]
+    c2[start:end+1] = p2[start:end+1]
+
+    # Điền phần còn lại từ các parent
+    pos1 = pos2 = (end + 1) % n
+    for i in range(n):
+        gene2 = parent2.route[i]
+        gene1 = parent1.route[i]
+        if gene2 not in c1:
+            c1[pos1] = gene2
+            pos1 = (pos1 + 1) % n
+        if gene1 not in c2:
+            c2[pos2] = gene1
+            pos2 = (pos2 + 1) % n
+    child1 = parent1.copy()
+    child2 = parent2.copy()
+    child1.route = c1
+    child2.route = c2
+    return child1, child2
+
 def create_next_population(pop, problem, c_rate, m_rate, **kwargs):
     POPSIZE = len(pop)
     children_list = []
@@ -19,9 +207,8 @@ def create_next_population(pop, problem, c_rate, m_rate, **kwargs):
     mmethod = kwargs.get('mmethod')
     svmethod = kwargs.get('svmethod')
     
-    # imp_type = kwargs.get('imp_type', 'first_improvement')
+    imp_type = kwargs.get('imp_type', 'first_improvement')
     ls_rate = kwargs.get('ls_rate', 0.1)
-    max_iter = kwargs.get('ls_iter_max', 10)
     
     #1. Tạo con (crossover)
     while len(children_list) < POPSIZE:
@@ -44,12 +231,12 @@ def create_next_population(pop, problem, c_rate, m_rate, **kwargs):
             children_list[i] = apply_mutation(children_list[i], mmethod) 
         # --- THÊM LOCAL SEARCH TẠI ĐÂY ---
         # Chỉ áp dụng cho một số cá thể may mắn để tiết kiệm thời gian
-        if random.random() < ls_rate:
+        # if random.random() < ls_rate:
         #     # Lưu ý: local_search_softTW trả về cá thể đã tối ưu và tự tính lại fitness/objective
         #     # children_list[i] = local_search_softTW(children_list[i], problem, max_no_improve=5, imp_type=imp_type)
         #     # children_list[i] = local_search_softTW(children_list[i], problem, imp_type=imp_type)
         #     # local_search_softTW_best_improvement
-            children_list[i], ls_log_progress = local_search_softTW_first_improvement(children_list[i], max_iter=10)
+        #     children_list[i] = local_search_softTW_first_improvement(children_list[i], problem)
             # children_list[i] = local_search_softTW_best_improvement(children_list[i], problem)
     
     #3. Gộp hai quần thể

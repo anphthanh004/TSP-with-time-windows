@@ -1,361 +1,263 @@
-from .ga_operators import cal_std_fitness
+import numpy as np
 import random
-from collections import deque
+import time
+from .ga_structures import Individual
 
+# Hàm tính lại chi phí cho phần đuôi lộ trình
 def recompute_suffix(route, problem, start_idx, prev_node, current_time):
-    """
-    Tính lại các thông số cho phần đuôi (suffix) của lộ trình từ start_idx.
-    """
-    n = problem.num_request
-    arrivals = []
-    departures = []
-    lateness = []
-    wait = []
+
+    n = len(route)
+
+    suffix_travel_sum = 0.0
+    suffix_total_lateness = 0.0
+    suffix_total_wait = 0.0
+
     prev = prev_node
     t = current_time
-    
-    # Duyệt từ điểm thay đổi đến hết lộ trình
+
+    tm = problem.time_matrix 
     for idx in range(start_idx, n):
         node = route[idx]
-        e_i, l_i, d_i = problem.request[node-1]
-        travel = problem.time_matrix[prev][node]
-        
+        e_i, l_i, d_i = problem.request[node - 1]
+
+        travel = tm[prev][node]
+        suffix_travel_sum += travel
         arrival = t + travel
-        
-        # Tính toán wait và arrival thực tế
+
         w = max(0.0, e_i - arrival)
         if arrival < e_i:
-            arrival = e_i
-            
-        # Tính toán late
-        late = max(0.0, arrival - l_i)
+            arrival = e_i  
+        suffix_total_wait += w
         
-        dep = arrival + d_i
+        late = max(0.0, arrival - l_i)
+        suffix_total_lateness += late
 
-        arrivals.append(arrival)
-        lateness.append(late)
-        wait.append(w)
-        departures.append(dep)
+        dep = arrival + d_i
 
         t = dep
         prev = node
 
     # Quay về depot
-    t += problem.time_matrix[prev][0]
-    suffix_total_time = t
-    suffix_total_lateness = sum(lateness)
-    suffix_total_wait = sum(wait)
-    
-    return arrivals, departures, suffix_total_time, lateness, suffix_total_lateness, wait, suffix_total_wait
+    return_travel = tm[prev][0]
+    suffix_travel_sum += return_travel
+    t += return_travel
 
-def calculate_route_cost_from_metrics(total_time, total_lateness, total_wait, problem):
+    return suffix_travel_sum, suffix_total_lateness, suffix_total_wait
+
+
+def calculate_total_cost(travel_sum, total_lateness, total_wait, problem):
     p_wait, p_late = problem.penalty
-    return total_time + p_wait * total_wait + p_late * total_lateness
+    return travel_sum + p_wait * total_wait + p_late * total_lateness
 
-# ---------------------------------------
-# Main Local Search (Best-Improvement)
-# ---------------------------------------
-def local_search_softTW_best_improvement(ind, problem, max_no_improve=5):
-    best = ind.copy()
-    best.calObjective() # Sửa: gọi method không cần tham số nếu class đã lưu problem
-    best_cost = best.objective
-
-    n = problem.num_request
-    no_improve = 0
-    
-    while no_improve < max_no_improve:
-        improved = False
-        
-        # 1. Tính toán trạng thái hiện tại đầy đủ
-        # Index 0-travels, 1-arrivals, 2-departures, 3-total_time, 4-lateness, 5-total_lateness, 6-wait, 7-total_wait
-        _, _, departures, _, lateness, total_lateness, wait, total_wait = best.compute_route_forward(best.route, problem)
-        
-        prefix_departures = departures
-        prefix_lateness = lateness
-        prefix_wait = wait # Cần thêm danh sách wait
-
-        best_move = None # (move_type, new_route, new_cost, ...)
-
-        # Helper lấy thông tin prefix
-        def get_prefix_info(start_idx_):
-            if start_idx_ == 0:
-                return 0, 0, 0.0, 0.0
-            prev_node = best.route[start_idx_-1]
-            prefix_time = prefix_departures[start_idx_-1]
-            prefix_lat_sum = sum(prefix_lateness[:start_idx_])
-            prefix_wait_sum = sum(prefix_wait[:start_idx_]) # Tính tổng wait phía trước
-            return prev_node, prefix_time, prefix_lat_sum, prefix_wait_sum
-
-        # --- Relocate ---
-        for i in range(n):
-            for j in range(n+1):
-                if i == j or i == j-1: continue
-                
-                rt = best.route
-                node = rt[i]
-                temp_route = rt[:i] + rt[i+1:]
-                
-                if j <= i:
-                    new_route = temp_route[:j] + [node] + temp_route[j:]
-                    start_idx = j
-                else:
-                    new_route = temp_route[:j-1] + [node] + temp_route[j-1:]
-                    start_idx = i
-
-                prev_node, prefix_time, prefix_lat_sum, prefix_wait_sum = get_prefix_info(start_idx)
-                
-                _, _, suf_final_time, _, suf_total_lat, _, suf_total_wait = recompute_suffix(
-                    new_route, problem, start_idx, prev_node, prefix_time
-                )
-                
-                cand_total_lat = prefix_lat_sum + suf_total_lat
-                cand_total_wait = prefix_wait_sum + suf_total_wait
-                cand_cost = calculate_route_cost_from_metrics(suf_final_time, cand_total_lat, cand_total_wait, problem)
-
-                if cand_cost < best_cost - 1e-9:
-                    best_cost = cand_cost
-                    best_move = (new_route, cand_cost)
-
-        # --- Swap ---
-        for i in range(n-1):
-            for j in range(i+1, n):
-                if best.route[i] == best.route[j]: continue
-                
-                new_route = best.route[:]
-                new_route[i], new_route[j] = new_route[j], new_route[i]
-                start_idx = i
-                
-                prev_node, prefix_time, prefix_lat_sum, prefix_wait_sum = get_prefix_info(start_idx)
-                
-                _, _, suf_final_time, _, suf_total_lat, _, suf_total_wait = recompute_suffix(
-                    new_route, problem, start_idx, prev_node, prefix_time
-                )
-                
-                cand_total_lat = prefix_lat_sum + suf_total_lat
-                cand_total_wait = prefix_wait_sum + suf_total_wait
-                cand_cost = calculate_route_cost_from_metrics(suf_final_time, cand_total_lat, cand_total_wait, problem)
-
-                if cand_cost < best_cost - 1e-9:
-                    best_cost = cand_cost
-                    best_move = (new_route, cand_cost)
-
-        # --- 2-opt ---
-        for i in range(n-1):
-            for j in range(i+1, n):
-                rt = best.route
-                new_route = rt[:i] + rt[i:j+1][::-1] + rt[j+1:]
-                start_idx = i
-                
-                prev_node, prefix_time, prefix_lat_sum, prefix_wait_sum = get_prefix_info(start_idx)
-                
-                _, _, suf_final_time, _, suf_total_lat, _, suf_total_wait = recompute_suffix(
-                    new_route, problem, start_idx, prev_node, prefix_time
-                )
-                
-                cand_total_lat = prefix_lat_sum + suf_total_lat
-                cand_total_wait = prefix_wait_sum + suf_total_wait
-                cand_cost = calculate_route_cost_from_metrics(suf_final_time, cand_total_lat, cand_total_wait, problem)
-
-                if cand_cost < best_cost - 1e-9:
-                    best_cost = cand_cost
-                    best_move = (new_route, cand_cost)
-
-        # --- Or-Opt ---
-        k = 2
-        if n >= k:
-            for i in range(n-k+1):
-                for j in range(n+1):
-                    if j >= i and j <= i+k: continue
-                    
-                    rt = best.route
-                    block = rt[i:i+k]
-                    temp_route = rt[:i] + rt[i+k:]
-                    
-                    if j <= i:
-                        new_route = temp_route[:j] + block + temp_route[j:]
-                        start_idx = j
-                    else:
-                        new_route = temp_route[:j-k] + block + temp_route[j-k:]
-                        start_idx = i
-
-                    prev_node, prefix_time, prefix_lat_sum, prefix_wait_sum = get_prefix_info(start_idx)
-                    
-                    _, _, suf_final_time, _, suf_total_lat, _, suf_total_wait = recompute_suffix(
-                        new_route, problem, start_idx, prev_node, prefix_time
-                    )
-                    
-                    cand_total_lat = prefix_lat_sum + suf_total_lat
-                    cand_total_wait = prefix_wait_sum + suf_total_wait
-                    cand_cost = calculate_route_cost_from_metrics(suf_final_time, cand_total_lat, cand_total_wait, problem)
-
-                    if cand_cost < best_cost - 1e-9:
-                        best_cost = cand_cost
-                        best_move = (new_route, cand_cost)
-
-        # Apply Move
-        if best_move:
-            best.route = best_move[0]
-            best.calObjective() # Cập nhật lại toàn bộ thuộc tính bên trong object
-            improved = True
-            no_improve = 0
-        else:
-            no_improve += 1
-            
-    return best
 
 # ------------------------------------------------
-# Local Search First Improvement (Random Order)
+# Local Search First Improvement
 # ------------------------------------------------
-def local_search_softTW_first_improvement(ind, problem, max_iter=1000, visit_tabu_size=200):
+def local_search_softTW_first_improvement(ind, max_iter=None, rotate_moves=True):
+    problem = ind.problem
     best = ind.copy()
     best.calObjective()
-    
+    current_best_cost = best.objective
+
     n = problem.num_request
-    iter_count = 0
-    recent_routes = deque(maxlen=visit_tabu_size)
-    recent_routes.append(tuple(best.route))
 
-    while True:
-        if max_iter is not None and iter_count >= max_iter:
+    # Tham số giới hạn neighborhood 
+    K_default = max(10, min(20, n // 5))  # số lân cận mặc định
+    RANDOM_SAMPLES = max(5, min(20, n // 10))  # số vị trí ngẫu nhiên thêm vào
+
+    progress = []
+    eval_count = 0
+    start_time = time.perf_counter()
+
+    move_order = ['relocate', 'swap', '2-opt']
+    improved = True
+    iteration = 0
+    
+    while improved:
+        improved = False
+        if max_iter and iteration >= max_iter:
             break
-        iter_count += 1
-
-        # 1. Tính toán trạng thái hiện tại
-        _, _, departures, _, lateness, _, wait, _ = best.compute_route_forward(best.route, problem)
-        prefix_departures = departures
-        prefix_lateness = lateness
-        prefix_wait = wait
+        iteration += 1
         
-        current_best_cost = best.objective
-        improved = False 
+        res = best.compute_route_forward()
+        current_travels = res[0]     
+        current_departures = res[2]  
+        current_lateness = res[4]    
+        current_wait = res[6]       
 
-        # Helper
+        # Prefix sums để tránh tính lại nhiều lần
+        prefix_travel = [0.0] * (n + 1)
+        prefix_lat = [0.0] * (n + 1)
+        prefix_wait = [0.0] * (n + 1)
+        for k in range(n):
+            prefix_travel[k + 1] = prefix_travel[k] + current_travels[k]
+            prefix_lat[k + 1] = prefix_lat[k] + current_lateness[k]
+            prefix_wait[k + 1] = prefix_wait[k] + current_wait[k]
+
+        # Hàm lấy thông tin prefix (phần đầu giữ nguyên)
         def get_prefix_info(start_idx_):
             if start_idx_ == 0:
-                return 0, 0, 0.0, 0.0
-            return (best.route[start_idx_-1], 
-                    prefix_departures[start_idx_-1], 
-                    sum(prefix_lateness[:start_idx_]),
-                    sum(prefix_wait[:start_idx_]))
+                return 0, 0.0, 0.0, 0.0, 0.0
+            prev_node_ = best.route[start_idx_ - 1]
+            dep_time_ = current_departures[start_idx_ - 1]
+            pre_travel_ = prefix_travel[start_idx_]
+            pre_lat_ = prefix_lat[start_idx_]
+            pre_wait_ = prefix_wait[start_idx_]
+            return prev_node_, dep_time_, pre_travel_, pre_lat_, pre_wait_
 
-        order = random.sample(range(4), 4)
+        route_len = n
+        route_list = best.route 
 
-        for op_code in order:
-            # --- RELOCATE ---
-            if op_code == 0:
-                for i in range(n):
-                    for j in range(n+1):
-                        if i == j or i == j-1: continue
-                        
-                        rt = best.route
-                        node = rt[i]
-                        temp_route = rt[:i] + rt[i+1:]
-                        if j <= i:
-                            new_route = temp_route[:j] + [node] + temp_route[j:]
-                            start_idx = j
-                        else:
-                            new_route = temp_route[:j-1] + [node] + temp_route[j-1:]
-                            start_idx = i
+        # Prepare shuffled indices for i to find improvement early
+        indices_i = list(range(route_len))
+        random.shuffle(indices_i)
 
-                        if tuple(new_route) in recent_routes: continue
-
-                        prev_node, prefix_time, prefix_lat_sum, prefix_wait_sum = get_prefix_info(start_idx)
-                        _, _, suf_final_time, _, suf_total_lat, _, suf_total_wait = recompute_suffix(new_route, problem, start_idx, prev_node, prefix_time)
-                        
-                        cand_cost = calculate_route_cost_from_metrics(suf_final_time, prefix_lat_sum + suf_total_lat, prefix_wait_sum + suf_total_wait, problem)
-
-                        if cand_cost < current_best_cost - 1e-9:
-                            best.route = new_route
-                            best.calObjective()
-                            recent_routes.append(tuple(best.route))
-                            improved = True
-                            break 
-                    if improved: break
-
-            # --- SWAP ---
-            elif op_code == 1:
-                for i in range(n-1):
-                    for j in range(i+1, n):
-                        if best.route[i] == best.route[j]: continue
-                        new_route = best.route[:]
-                        new_route[i], new_route[j] = new_route[j], new_route[i]
-
-                        if tuple(new_route) in recent_routes: continue
-                        start_idx = i
-
-                        prev_node, prefix_time, prefix_lat_sum, prefix_wait_sum = get_prefix_info(start_idx)
-                        _, _, suf_final_time, _, suf_total_lat, _, suf_total_wait = recompute_suffix(new_route, problem, start_idx, prev_node, prefix_time)
-                        
-                        cand_cost = calculate_route_cost_from_metrics(suf_final_time, prefix_lat_sum + suf_total_lat, prefix_wait_sum + suf_total_wait, problem)
-
-                        if cand_cost < current_best_cost - 1e-9:
-                            best.route = new_route
-                            best.calObjective()
-                            recent_routes.append(tuple(best.route))
-                            improved = True
-                            break
-                    if improved: break
-
-            # --- 2-OPT ---
-            elif op_code == 2:
-                for i in range(n-1):
-                    for j in range(i+1, n):
-                        rt = best.route
-                        new_route = rt[:i] + rt[i:j+1][::-1] + rt[j+1:]
-
-                        if tuple(new_route) in recent_routes: continue
-                        start_idx = i
-
-                        prev_node, prefix_time, prefix_lat_sum, prefix_wait_sum = get_prefix_info(start_idx)
-                        _, _, suf_final_time, _, suf_total_lat, _, suf_total_wait = recompute_suffix(new_route, problem, start_idx, prev_node, prefix_time)
-                        
-                        cand_cost = calculate_route_cost_from_metrics(suf_final_time, prefix_lat_sum + suf_total_lat, prefix_wait_sum + suf_total_wait, problem)
-
-                        if cand_cost < current_best_cost - 1e-9:
-                            best.route = new_route
-                            best.calObjective()
-                            recent_routes.append(tuple(best.route))
-                            improved = True
-                            break
-                    if improved: break
-
-            # --- OR-OPT ---
-            elif op_code == 3:
-                k = 2
-                if n >= k:
-                    for i in range(n-k+1):
-                        for j in range(n+1):
-                            if j >= i and j <= i+k: continue
-                            rt = best.route
-                            block = rt[i:i+k]
-                            temp_route = rt[:i] + rt[i+k:]
-                            if j <= i:
-                                new_route = temp_route[:j] + block + temp_route[j:]
-                                start_idx = j
-                            else:
-                                new_route = temp_route[:j-k] + block + temp_route[j-k:]
-                                start_idx = i
-
-                            if tuple(new_route) in recent_routes: continue
-
-                            prev_node, prefix_time, prefix_lat_sum, prefix_wait_sum = get_prefix_info(start_idx)
-                            _, _, suf_final_time, _, suf_total_lat, _, suf_total_wait = recompute_suffix(new_route, problem, start_idx, prev_node, prefix_time)
-                            
-                            cand_cost = calculate_route_cost_from_metrics(suf_final_time, prefix_lat_sum + suf_total_lat, prefix_wait_sum + suf_total_wait, problem)
-
-                            if cand_cost < current_best_cost - 1e-9:
-                                best.route = new_route
-                                best.calObjective()
-                                recent_routes.append(tuple(best.route))
-                                improved = True
-                                break
-                        if improved: break
-
-            if improved: break
-
-        if improved:
-            continue
+        if rotate_moves:
+            offset = (iteration - 1) % len(move_order)
+            this_order = move_order[offset:] + move_order[:offset]
         else:
-            break
+            this_order = move_order
+            
+        for op in this_order:
+            if op == 'relocate':
+                # 1. RELOCATE (Insert node i into position j)
+                K = min(K_default, route_len - 1)
+                for i in indices_i:
+                    # chọn vị trí j để chèn node[i] trong lân cận K của i
+                    start_j = max(0, i - K) # bán kính K
+                    end_j = min(route_len, i + K + 1) # bán kính K
+                    j_candidates = list(range(start_j, end_j))
+                    # (i-1).i.(i+1) ta thấy là dù chèn i vào ngay trước i hay ngay sau i đều vô nghĩa 
+                    j_candidates = [j for j in j_candidates if not (j == i or j == i + 1)]
+                    # thêm 1 vài vị trí ngẫu nhiên để giữ độ đa dạng 
+                    # (tạo list chứa các phần tử không trong j và có nghĩa -> lấy ngẫu nhiên từ list này với số lượng là min(RANDOM_SAMPLES, list đó) -> chèn các phần tử này vào j_candidates)
+                    if route_len - len(j_candidates) - 1 > 0:
+                        pool = [x for x in range(route_len) if x not in j_candidates and x != i and x != i + 1]
+                        sample_count = min(RANDOM_SAMPLES, len(pool)) 
+                        if sample_count > 0:
+                            j_candidates.extend(random.sample(pool, sample_count))
+                    random.shuffle(j_candidates)
 
-    return best
+                    for j in j_candidates:
+                        rt = route_list[:] 
+                        node = rt.pop(i)
+                        rt.insert(j, node)
+                        start_idx = min(i, j)
+                        prev_n, dep_t, pre_travel, pre_lat, pre_wait = get_prefix_info(start_idx)
+                        suf_travel, suf_lat, suf_wait = recompute_suffix(rt, problem, start_idx, prev_n, dep_t)
+                        eval_count += 1
+                        new_cost = calculate_total_cost(pre_travel + suf_travel,
+                                                        pre_lat + suf_lat,
+                                                        pre_wait + suf_wait, problem)
+                        if new_cost < current_best_cost - 1e-9:
+                            # log the move
+                            progress.append({
+                                'time': time.perf_counter() - start_time,
+                                'iteration': iteration,
+                                'move': 'relocate',
+                                'i': i,
+                                'j': j,
+                                'old_cost': current_best_cost,
+                                'new_cost': new_cost,
+                                'improvement': current_best_cost - new_cost
+                            })
+                            best.route = rt
+                            best.fitness = new_cost
+                            best.objective = new_cost
+                            current_best_cost = new_cost
+                            improved = True
+                            break  # First Improvement: stop early
+                    if improved:
+                        break
+                if improved:
+                    continue
+            elif op == 'swap':                
+                # 2. SWAP (swap i and j)
+                # lặp ngẫu nhiên các chỉ số
+                indices_i = list(range(route_len))
+                random.shuffle(indices_i)
+                for i in indices_i:
+                    j_candidates = list(range(i + 1, min(route_len, i + 1 + K)))
+                    pool = [x for x in range(i + 1, route_len) if x not in j_candidates]
+                    sample_count = min(RANDOM_SAMPLES, len(pool)) # sóo lượng vị 
+                    if sample_count > 0:
+                        j_candidates.extend(random.sample(pool, sample_count))
+                    random.shuffle(j_candidates)
+
+                    for j in j_candidates:
+                        rt = route_list[:]
+                        rt[i], rt[j] = rt[j], rt[i]
+                        start_idx = min(i, j)
+                        prev_n, dep_t, pre_travel, pre_lat, pre_wait = get_prefix_info(start_idx)
+                        suf_travel, suf_lat, suf_wait = recompute_suffix(rt, problem, start_idx, prev_n, dep_t)
+                        eval_count += 1
+                        new_cost = calculate_total_cost(pre_travel + suf_travel,
+                                                        pre_lat + suf_lat,
+                                                        pre_wait + suf_wait, problem)
+                        if new_cost < current_best_cost - 1e-9:
+                            progress.append({
+                                'time': time.perf_counter() - start_time,
+                                'iteration': iteration,
+                                'move': 'swap',
+                                'i': i,
+                                'j': j,
+                                'old_cost': current_best_cost,
+                                'new_cost': new_cost,
+                                'improvement': current_best_cost - new_cost
+                            })
+                            best.route = rt
+                            best.fitness = new_cost
+                            best.objective = new_cost
+                            current_best_cost = new_cost
+                            improved = True
+                            break
+                    if improved:
+                        break
+                if improved:
+                    continue
+            else: 
+                # 3. 2-OPT (reverse segment i..j)
+                indices_i = list(range(route_len - 1))
+                random.shuffle(indices_i)
+                for i in indices_i:
+                    j_candidates = list(range(i + 1, min(route_len, i + 1 + K)))
+                    pool = [x for x in range(i + 1, route_len) if x not in j_candidates]
+                    sample_count = min(RANDOM_SAMPLES, len(pool))
+                    if sample_count > 0:
+                        j_candidates.extend(random.sample(pool, sample_count))
+                    random.shuffle(j_candidates)
+
+                    for j in j_candidates:
+                        rt = route_list[:]
+                        rt[i:j + 1] = rt[i:j + 1][::-1]
+                        start_idx = i
+                        prev_n, dep_t, pre_travel, pre_lat, pre_wait = get_prefix_info(start_idx)
+                        suf_travel, suf_lat, suf_wait = recompute_suffix(rt, problem, start_idx, prev_n, dep_t)
+                        eval_count += 1
+                        new_cost = calculate_total_cost(pre_travel + suf_travel,
+                                                        pre_lat + suf_lat,
+                                                        pre_wait + suf_wait, problem)
+                        if new_cost < current_best_cost - 1e-9:
+                            progress.append({
+                                'time': time.perf_counter() - start_time,
+                                'iteration': iteration,
+                                'move': '2-opt',
+                                'i': i,
+                                'j': j,
+                                'old_cost': current_best_cost,
+                                'new_cost': new_cost,
+                                'improvement': current_best_cost - new_cost
+                            })
+                            best.route = rt
+                            best.fitness = new_cost
+                            best.objective = new_cost
+                            current_best_cost = new_cost
+                            improved = True
+                            break
+                    if improved:
+                        break
+
+    best.calObjective()
+    return best, progress
+
+
