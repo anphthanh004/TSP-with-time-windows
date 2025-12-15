@@ -21,17 +21,3 @@ def load_data(file_path):
             row = list(map(int, data.readline().strip().split()))
             time_matrix.append(row)   
     return num_request, request, time_matrix
-
-# def load_output(input_path, output_path):
-#     if not os.path.exists(output_path):
-#         raise FileNotFoundError(f"The file {output_path} does not exist.")
-#     input = load_data(input_path)
-#     problem = Problem(num_request=input[0],
-#                   request=input[1], 
-#                   time_matrix=np.array(input[2]))
-#     with open(output_path, 'r') as data:
-#         num_request = int(data.readline().strip())
-#         route = list(map(int, data.readline().strip().split()))
-#         indi = Individual(problem)
-#         indi.route = route
-#     return indi
