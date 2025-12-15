@@ -57,7 +57,7 @@ def calculate_route_cost_from_metrics(total_time, total_lateness, total_wait, pr
 # ---------------------------------------
 def local_search_softTW_best_improvement(ind, problem, max_no_improve=5):
     best = ind.copy()
-    best.calObjective() # Sửa: gọi method không cần tham số nếu class đã lưu problem
+    best.calObjective() 
     best_cost = best.objective
 
     n = problem.num_request
