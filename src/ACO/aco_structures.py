@@ -141,9 +141,9 @@ class Ant:
         self.total_wait = total_wait
         
         penalty = problem.penalty
-        self.total_cost = total_travel + total_wait * penalty[0] + total_lateness * penalty[1]
+        self.cost = total_travel + total_wait * penalty[0] + total_lateness * penalty[1]
         
-        return self.total_cost
+        return self.cost
     
                         
             

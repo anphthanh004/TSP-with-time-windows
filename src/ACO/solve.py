@@ -53,19 +53,22 @@ class SolveTSPUsingACO:
     def _acs(self):
         progress_best = []
         for step in tqdm.tqdm(range(self.steps), desc=f"Running ACO ({self.mode})"):
+            
             for ant in self.ants:
                 ant.find_tour()
-                cost = ant.calculate_cost()
-                self._add_pheromone(ant.tour, cost) # thêm pheromone trên cạnh (i,j)
-                if cost < self.global_best_cost:
-                    self.global_best_cost = cost
-                    self.global_corresponding_tour = ant.tour
-                    self.global_corresponding_details={"travel": ant.travel_time, "late": ant.total_lateness, "wait": ant.total_wait}
-            
-            # Sau khi tất cả kiến hoàn thành chặng đường, pheromone trên cả đồ thị sẽ bị bay hơi
+                ant.calculate_cost()
+            # bay hơi trước khi cộng thêm pheromone
             for i in range(self.num_nodes):
                 for j in range(self.num_nodes):
                     self.edges[i][j].pheromone *= (1.0-self.rho)
+                
+            for ant in self.ants:
+                self._add_pheromone(ant.tour, ant.cost) # thêm pheromone trên cạnh (i,j)
+                if ant.cost < self.global_best_cost:
+                    self.global_best_cost = ant.cost
+                    self.global_corresponding_tour = ant.tour
+                    self.global_corresponding_details={"travel": ant.travel_time, "late": ant.total_lateness, "wait": ant.total_wait}
+            
             progress_best.append(self.global_best_cost)
         return progress_best
     
@@ -74,10 +77,15 @@ class SolveTSPUsingACO:
         for step in tqdm.tqdm(range(self.steps), desc=f"Running ACO ({self.mode})"):
             for ant in self.ants:
                 ant.find_tour()
-                cost = ant.calculate_cost()
-                self._add_pheromone(ant.tour, cost)
-                if cost < self.global_best_cost:
-                    self.global_best_cost = cost
+                ant.calculate_cost()
+            # bay hơi trước khi cộng thêm
+            for i in range(self.num_nodes):
+                for j in range(self.num_nodes):
+                    self.edges[i][j].pheromone *= (1.0-self.rho)
+            for ant in self.ants:
+                self._add_pheromone(ant.tour, ant.cost)
+                if ant.cost < self.global_best_cost:
+                    self.global_best_cost = ant.cost
                     self.global_corresponding_tour =ant.tour
                     self.global_corresponding_details={"travel": ant.travel_time, "late": ant.total_lateness, "wait": ant.total_wait}
             # cập nhật pheromone: pheromone_(i,j) <- (1-rho)*pheromone_(i,j) + delta(k)_(i,j) 
@@ -86,56 +94,78 @@ class SolveTSPUsingACO:
             if self.global_corresponding_tour:
                 self._add_pheromone(self.global_corresponding_tour, self.global_best_cost, weight=self.elitist_weight)
             
-            # tiếp theo là bay hơi
-            for i in range(self.num_nodes):
-                for j in range(self.num_nodes):
-                    self.edges[i][j].pheromone *= (1.0-self.rho)
             progress_best.append(self.global_best_cost)
         return progress_best
-
+    
     def _max_min(self):
         progress_best = []
+        
+        # MMAS thường khởi tạo pheromone ở mức Max để khuyến khích exploration ban đầu
+        # Nếu muốn reset, có thể thêm đoạn code reset ở đây, nhưng ta sẽ dùng init ban đầu.
+
         for step in tqdm.tqdm(range(self.steps), desc=f"Running ACO ({self.mode})"):
-            iteration_best_tour = None
             iteration_best_cost = float('inf')
+            iteration_corresponding_tour = None
             
-            # Tìm đường tốt nhất trong thế hệ này
+            # 1. Tìm đường đi cho tất cả kiến
             for ant in self.ants:
                 ant.find_tour()
-                cost = ant.calculate_cost()
-                if cost < iteration_best_cost:
-                    iteration_best_cost = cost
-                    iteration_corresponding_tour = ant.tour
-                    iteration_corresponding_travel_time = ant.travel_time
-                    iteration_total_lateness = ant.total_lateness
-                    iteration_total_wait = ant.total_wait
+                ant.calculate_cost()
             
-            # Cập nhật Global Best
+            # 2. Tìm Iteration Best (Tốt nhất trong thế hệ này)
+            for ant in self.ants:
+                if ant.cost < iteration_best_cost:
+                    iteration_best_cost = ant.cost
+                    iteration_corresponding_tour = ant.tour
+                    iteration_details = {
+                        "travel": ant.travel_time, 
+                        "late": ant.total_lateness, 
+                        "wait": ant.total_wait
+                    }
+
+            # 3. Cập nhật Global Best
             if iteration_best_cost < self.global_best_cost:
                 self.global_best_cost = iteration_best_cost
                 self.global_corresponding_tour = iteration_corresponding_tour
-                self.global_corresponding_details={"travel": iteration_corresponding_travel_time, "late": iteration_total_lateness, "wait": iteration_total_wait}
+                self.global_corresponding_details = iteration_details
 
-            # Cập nhật Pheromone
-            if float(step + 1) / float(self.steps) <= 0.75:
-                self._add_pheromone(iteration_corresponding_tour, iteration_best_cost)
-                max_pheromone = self.pheromone_deposit_weight / iteration_best_cost if iteration_best_cost > 0 else 10.0
-            else:
-                self._add_pheromone(self.global_corresponding_tour, self.global_best_cost)
-                max_pheromone = self.pheromone_deposit_weight / self.global_best_cost
-            
-            min_pheromone = max_pheromone * self.min_scaling_factor
-            
-            # Bay hơi và kẹp giá trị 
+            # 4. bay hơi 
             for i in range(self.num_nodes):
                 for j in range(self.num_nodes):
-                    self.edges[i][j].pheromone *= (1.0-self.rho)
+                    self.edges[i][j].pheromone *= (1.0 - self.rho)
+
+            # 5. Xác định giới hạn Max - Min Pheromone
+            # Theo lý thuyết MMAS: T_max = Q / (rho * global_best_cost)
+            if self.global_best_cost > 0:
+                max_pheromone = self.pheromone_deposit_weight / (self.rho * self.global_best_cost)
+            else:
+                max_pheromone = 10.0 # Giá trị default nếu cost = 0 (hiếm gặp)
+            
+            min_pheromone = max_pheromone * self.min_scaling_factor
+
+            # 6. Thêm Pheromone (Deposit)
+            # Chiến lược Hybrid: 
+            # - Giai đoạn đầu (<= 75%): Dùng Iteration Best để tăng khả năng khám phá (tránh cực tiểu địa phương).
+            # - Giai đoạn sau (> 75%): Dùng Global Best để hội tụ nhanh về kết quả tốt nhất.
+            if (step + 1) / self.steps <= 0.75:
+                if iteration_corresponding_tour:
+                    self._add_pheromone(iteration_corresponding_tour, iteration_best_cost)
+            else:
+                if self.global_corresponding_tour:
+                    self._add_pheromone(self.global_corresponding_tour, self.global_best_cost)
+
+            # 7. Kẹp giá trị Pheromone (Clamping)
+            for i in range(self.num_nodes):
+                for j in range(self.num_nodes):
                     val = self.edges[i][j].pheromone
-                    if val > max_pheromone: val = max_pheromone
-                    if val < min_pheromone: val = min_pheromone
+                    if val > max_pheromone:
+                        val = max_pheromone
+                    elif val < min_pheromone:
+                        val = min_pheromone
                     self.edges[i][j].pheromone = val
-                    
+            
             progress_best.append(self.global_best_cost)
+            
         return progress_best
     
     def run(self):
