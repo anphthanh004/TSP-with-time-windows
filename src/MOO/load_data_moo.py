@@ -15,10 +15,10 @@ def load_data(file_path):
         request = []
         time_matrix = []
         for _ in range(num_request):
-            e, l, d = map(int, data.readline().strip().split())
+            e, l, d = map(float, data.readline().strip().split())
             request.append((e, l, d))
         for _ in range(num_request + 1):
-            row = list(map(int, data.readline().strip().split()))
+            row = list(map(float, data.readline().strip().split()))
             time_matrix.append(row)   
     return num_request, request, time_matrix
 
